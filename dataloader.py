@@ -3,14 +3,15 @@
 # author: satwik kottur
 
 import torch
-import itertools, pdb, json, random
+import itertools, ipdb, json, random
+from functools import reduce  # py3
 
 class Dataloader:
 
     # initialize
     def __init__(self, params):
         # absorb all values from params
-        for field, value in params.iteritems(): setattr(self, field, value);
+        for field, value in params.items(): setattr(self, field, value);
 
         # if loadPath is given, load dataset
         if 'dataset' not in params:
@@ -19,17 +20,17 @@ class Dataloader:
 
         self.loadDataset(params['dataset']);
         ####################### Create attributes #########################
-        numVals = {attr:len(vals) for attr, vals in self.props.iteritems()};
+        numVals = {attr:len(vals) for attr, vals in self.props.items()};
         self.attrValVocab = reduce(lambda x, y: x + y, [self.props[ii] \
                                                 for ii in self.attributes]);
         self.numTasks = len(self.taskDefn)
 
         # input vocab for answerer
         # inVocab and outVocab same for questioner
-        taskVocab = ['<T%d>' % ii for ii in xrange(self.numTasks)];
+        taskVocab = ['<T%d>' % ii for ii in range(self.numTasks)];
         # A, Q have different vocabs
-        qOutVocab = [chr(ii + 97) for ii in xrange(params['qOutVocab'])];
-        aOutVocab = [chr(ii + 65) for ii in xrange(params['aOutVocab'])];
+        qOutVocab = [chr(ii + 97) for ii in range(params['qOutVocab'])];
+        aOutVocab = [chr(ii + 65) for ii in range(params['aOutVocab'])];
         aInVocab =  qOutVocab + aOutVocab;
         qInVocab = aOutVocab + qOutVocab + taskVocab;
 
@@ -69,7 +70,7 @@ class Dataloader:
         self.rangeInds = torch.range(0, self.numInst['train']-1).long();
         # ship to gpu if needed
         if self.useGPU:
-            for key, value in self.data.iteritems():
+            for key, value in self.data.items():
                 self.data[key] = value.cuda();
             self.rangeInds = self.rangeInds.cuda();
 
@@ -77,7 +78,7 @@ class Dataloader:
     def loadDataset(self, loadPath):
         # load and absorb the values
         with open(loadPath, 'r') as fileId: loaded = json.load(fileId);
-        for key, value in loaded.iteritems(): setattr(self, key, value);
+        for key, value in loaded.items(): setattr(self, key, value);
 
     # create and save the dataset
     def saveDataset(self, savePath, trainSize=0.8):
@@ -196,22 +197,22 @@ class Dataloader:
         script = [];
         numImgs = images.size(0);
         if self.qOutVocab < 4:
-            aVocab = [str(ii) for ii in xrange(self.aOutVocab)];
-            qVocab = [chr(ii + 88) for ii in xrange(self.qOutVocab)];
+            aVocab = [str(ii) for ii in range(self.aOutVocab)];
+            qVocab = [chr(ii + 88) for ii in range(self.qOutVocab)];
         else:
-            aVocab = ['a-%d' % ii for ii in xrange(self.aOutVocab)];
-            qVocab = ['q-%d' % ii for ii in xrange(self.qOutVocab)];
+            aVocab = ['a-%d' % ii for ii in range(self.aOutVocab)];
+            qVocab = ['q-%d' % ii for ii in range(self.qOutVocab)];
 
-        attrPairInv = {ii:value for value, ii in self.attrPairVocab.iteritems()};
-        for ii in xrange(numImgs):
+        attrPairInv = {ii:value for value, ii in self.attrPairVocab.items()};
+        for ii in range(numImgs):
             # conversation
             conv = {};
             conv['image'] = [self.invAttrVocab[jj] for jj in images[ii]];
-            conv['gt'] = [self.invAttrVocab[labels[ii, jj]] for jj in xrange(2)];
+            conv['gt'] = [self.invAttrVocab[labels[ii, jj]] for jj in range(2)];
             conv['task'] = [self.attributes[jj] \
                                         for jj in self.taskSelect[tasks[ii]]];
             conv['pred'] = [self.invAttrVocab[preds[jj].data[ii, 0]] \
-                                                for jj in xrange(2)];
+                                                for jj in range(2)];
             conv['chat'] = [qVocab[talk[0].data[ii]], \
                             aVocab[talk[1].data[ii]]]
             if len(talk) > 3:

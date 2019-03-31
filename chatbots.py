@@ -2,12 +2,13 @@
 
 import torch
 import torch.nn as nn
+from torch.distributions import Categorical
 from torch.autograd import Variable
 import torch.autograd as autograd
 import sys
 from utilities import initializeWeights
 
-import pdb, pickle
+import ipdb, pickle
 #---------------------------------------------------------------------------
 # Parent class for both q and a bots
 class ChatBot(nn.Module):
@@ -21,6 +22,7 @@ class ChatBot(nn.Module):
         self.hState = torch.Tensor();
         self.cState = torch.Tensor();
         self.actions = [];
+        self.outDistr = [];
         self.evalFlag = False;
 
         # modules (common)
@@ -76,26 +78,36 @@ class ChatBot(nn.Module):
         if self.evalFlag:
             _, actions = outDistr.max(1);
             actions = actions.unsqueeze(1);
-        else:
-            actions = outDistr.multinomial();
+        else:           
+            actions = Categorical(outDistr).sample();
             # record actions
             self.actions.append(actions);
-        return actions.squeeze(1);
-
-    # reinforce each state with reward
-    def reinforce(self, rewards):
-        for action in self.actions: action.reinforce(rewards);
+            # record output distribution
+            self.outDistr.append(outDistr);
+        return actions;
 
     # backward computation
-    def performBackward(self):
-        autograd.backward(self.actions, [None for _ in self.actions],\
-                                                retain_variables=True);
+    def performBackward(self, rewards):
+        # Syaru:
+        # 1. stochastic_node.reinforce() is deprecated,
+        # Refer: http://pytorch.org/docs/0.3.0/distributions.html
+        # 2. About stochastic_node.reinforce():
+        # register reward with gradients of stochastic node.
+        # Refer: https://discuss.pytorch.org/t/what-is-action-reinforce-r-doing-actually/1294
+        # 3. self.actions: collection of 2 rounds qBot(speak and guess) or aBot(speak) actions.
+        # 4. self. outDistr: collection of 2 rounds qBot(speak and guess) or aBot(speak) output distribution.
+        # 5. Separtely backward for each actions.
+        # Refer: https://blog.csdn.net/qq_17550379/article/details/78939046
+        for actions, outDistr in zip(self.actions, self.outDistr):
+            loss = torch.mean(-Categorical(outDistr).log_prob(actions) * rewards);  # gradients of log likelihood
+            autograd.backward(loss, retain_graph=True);
 
     # switch mode to evaluate
     def evaluate(self): self.evalFlag = True;
 
     # switch mode to train
     def train(self): self.evalFlag = False;
+    
 #---------------------------------------------------------------------------
 class Answerer(ChatBot):
     def __init__(self, params):
@@ -123,12 +135,17 @@ class Answerer(ChatBot):
     # Embedding the image
     def embedImage(self, batch):
         embeds = self.imgNet(batch);
+                
+        # Syaru: 
+        # 1. Expansion by first dim, bz change to dim 1, but still 0 after cat.
+        # 2. Pytorch update: https://github.com/Kaixhin/Rainbow/issues/17
+        
         # concat instead of add
-        features = torch.cat(embeds.transpose(0, 1), 1);
+        features = torch.cat(list(embeds.transpose(0, 1)), 1);
         # add features
         #features = torch.sum(embeds, 1).squeeze(1);
 
-        return features;
+        return features;        
 
 #---------------------------------------------------------------------------
 class Questioner(ChatBot):
@@ -165,18 +182,21 @@ class Questioner(ChatBot):
         # if evaluating
         if self.evalFlag: _, actions = outDistr.max(1);
         else:
-            actions = outDistr.multinomial();
+            # ORIGINAL: actions = outDistr.multinomial(num_samples=1);
+            actions = Categorical(outDistr).sample();
             # record actions
             self.actions.append(actions);
+            self.outDistr.append(outDistr);
 
         return actions, outDistr;
 
     # returning the answer, from the task
     def predict(self, tasks, numTokens):
         guessTokens = [];
+        # return by team.forward
         guessDistr = [];
 
-        for _ in xrange(numTokens):
+        for _ in range(numTokens):
             # explicit task dependence
             taskEmbeds = self.inNet(tasks);
             guess, distr = self.guessAttribute(taskEmbeds);
@@ -190,13 +210,13 @@ class Questioner(ChatBot):
 
     # Embedding the image
     def embedTask(self, tasks): return self.inNet(tasks + self.taskOffset);
-
+    
 #---------------------------------------------------------------------------
 class Team:
     # initialize
     def __init__(self, params):
         # memorize params
-        for field, value in params.iteritems(): setattr(self, field, value);
+        for field, value in params.items(): setattr(self, field, value);
         self.aBot = Answerer(params);
         self.qBot = Questioner(params);
         self.criterion = nn.NLLLoss();
@@ -235,7 +255,7 @@ class Team:
         aBotReply = tasks + self.qBot.taskOffset;
         # if the conversation is to be recorded
         talk = [];
-        for roundId in xrange(self.numRounds):
+        for roundId in range(self.numRounds):
             # listen to answer, ask q_r, and listen to q_r as well
             self.qBot.listen(aBotReply);
             qBotQues = self.qBot.speak();
@@ -267,20 +287,16 @@ class Team:
     def backward(self, optimizer, gtLabels, epoch, baseline=None):
         # compute reward
         self.reward.fill_(self.rlNegReward);
-
+        
         # both attributes need to match
-        firstMatch = self.guessToken[0].data == gtLabels[:, 0:1];
-        secondMatch = self.guessToken[1].data == gtLabels[:, 1:2];
+        firstMatch = self.guessToken[0].data == gtLabels[:, 0];
+        secondMatch = self.guessToken[1].data == gtLabels[:, 1];
         self.reward[firstMatch & secondMatch] = self.rlScale;
 
-        # reinforce all actions for qBot, aBot
-        self.qBot.reinforce(self.reward);
-        self.aBot.reinforce(self.reward);
-
-        # optimize
+        # optimize for qBot, aBot
         optimizer.zero_grad();
-        self.qBot.performBackward();
-        self.aBot.performBackward();
+        self.qBot.performBackward(self.reward);
+        self.aBot.performBackward(self.reward);
 
         # clamp the gradients
         for p in self.qBot.parameters(): p.grad.data.clamp_(min=-5., max=5.);

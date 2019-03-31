@@ -6,7 +6,7 @@ import torch.nn as nn
 from torch.autograd import Variable
 import torch.optim as optim
 
-import itertools, pdb, random, pickle, os
+import itertools, ipdb, random, pickle, os
 import numpy as np
 from chatbots import Team
 from dataloader import Dataloader
@@ -23,7 +23,7 @@ numInst = data.getInstCount();
 
 params = data.params;
 # append options from options to params
-for key, value in options.iteritems(): params[key] = value;
+for key, value in options.items(): params[key] = value;
 
 #------------------------------------------------------------------------
 # build agents, and setup optmizer
@@ -48,7 +48,7 @@ savePath = 'models/tasks_inter_%dH_%.4flr_%r_%d_%d.pickle' %\
 matches = {};
 accuracy = {};
 bestAccuracy = 0;
-for iterId in xrange(params['numEpochs'] * numIterPerEpoch):
+for iterId in range(params['numEpochs'] * numIterPerEpoch):
     epoch = float(iterId)/numIterPerEpoch;
 
     # get double attribute tasks

@@ -1,7 +1,7 @@
 # Script to read options
 # author: satwik kottur
 import argparse
-import pdb
+import ipdb
 import os
 
 # read command line arguments
@@ -41,12 +41,12 @@ def read():
     parser.add_argument('-useGPU', dest='useGPU', action='store_true')
 
     try: parsed = vars(parser.parse_args());
-    except IOError, msg: parser.error(str(msg));
+    except IOError as msg: parser.error(str(msg));
 
     # print and return
     maxLen = max([len(ii) for ii in parsed.keys()]);
     fmtString = '\t%' + str(maxLen) + 's : %s';
     print('Arguments:')
-    for keyPair in parsed.iteritems(): print(fmtString % keyPair)
+    for keyPair in parsed.items(): print(fmtString % keyPair)
 
     return parsed;
