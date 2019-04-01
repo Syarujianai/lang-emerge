@@ -61,11 +61,12 @@ class ChatBot(nn.Module):
     def listen(self, inputToken, imgEmbed = None):
         # embed and pass through LSTM
         tokenEmbeds = self.inNet(inputToken);
-        # concat with image representation
+        # concat with image representation (case aBot)
         if imgEmbed is not None:
             tokenEmbeds = torch.cat((tokenEmbeds, imgEmbed), 1);
 
-        # now pass it through rnn
+        # now pass it through rnn (1 timestep)
+        #ipdb.set_trace();
         self.hState, self.cState = self.rnn(tokenEmbeds,\
                                             (self.hState, self.cState));
 
@@ -77,8 +78,7 @@ class ChatBot(nn.Module):
         # if evaluating
         if self.evalFlag:
             _, actions = outDistr.max(1);
-            actions = actions.unsqueeze(1);
-        else:           
+        else:
             actions = Categorical(outDistr).sample();
             # record actions
             self.actions.append(actions);
@@ -243,6 +243,7 @@ class Team:
 
     # forward pass
     def forward(self, batch, tasks, record=False):
+        # ipdb.set_trace();
         # reset the states of the bots
         batchSize = batch.size(0);
         self.qBot.resetStates(batchSize);
@@ -303,8 +304,8 @@ class Team:
         for p in self.aBot.parameters(): p.grad.data.clamp_(min=-5., max=5.);
 
         # cummulative reward
-        batchReward = torch.mean(self.reward)/self.rlScale;
-        if self.totalReward == None: self.totalReward = batchReward;
+        batchReward = torch.mean(self.reward)/self.rlScale;                      
+        if self.totalReward is None: self.totalReward = batchReward;
         self.totalReward = 0.95 * self.totalReward + 0.05 * batchReward;
 
         return batchReward;

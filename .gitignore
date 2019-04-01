@@ -6,3 +6,7 @@ results/*
 *pickle
 *json
 *.sh
+./GPATH
+./GRTAGS
+./GTAGS
+./NppGTags.cfg

@@ -13,6 +13,7 @@ from dataloader import Dataloader
 import options
 from time import gmtime, strftime
 
+
 # read the command line options
 options = options.read();
 #------------------------------------------------------------------------
@@ -75,6 +76,7 @@ for iterId in range(params['numEpochs'] * numIterPerEpoch):
         # get the entire batch
         img, task, labels = data.getCompleteData(dtype);
         # evaluate on the train dataset, using greedy policy
+        # ipdb.set_trace();
         guess, _, _ = team.forward(Variable(img), Variable(task));
         # compute accuracy for color, shape, and both
         firstMatch = guess[0].data == labels[:, 0].long();

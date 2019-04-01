@@ -10,6 +10,7 @@ class Dataloader:
 
     # initialize
     def __init__(self, params):
+        # ipdb.set_trace();
         # absorb all values from params
         for field, value in params.items(): setattr(self, field, value);
 
@@ -67,7 +68,7 @@ class Dataloader:
                 data[ii] = torch.LongTensor([self.attrVocab[at] for at in attrSet]);
             self.data[dtype] = data;
 
-        self.rangeInds = torch.range(0, self.numInst['train']-1).long();
+        self.rangeInds = torch.arange(0, self.numInst['train']).long();
         # ship to gpu if needed
         if self.useGPU:
             for key, value in self.data.items():
@@ -127,12 +128,12 @@ class Dataloader:
     #  query number of instances
     def getInstCount(self): return self.numInst;
 
-    # get a batch
+    # get a batch (eval)
     def getBatch(self, batchSize):
         # sample tasks
-        tasks = torch.LongTensor(batchSize).random_(0, self.numPairTasks-1);
+        tasks = torch.LongTensor(batchSize).random_(0, self.numPairTasks);
         # sample a batch
-        indices = torch.LongTensor(batchSize).random_(0, self.numInst['train']-1);
+        indices = torch.LongTensor(batchSize).random_(0, self.numInst['train']);
         if self.useGPU: indices = indices.cuda();
         batch = self.data['train'][indices];
 
@@ -145,12 +146,14 @@ class Dataloader:
 
         return batch, tasks, labels;
 
-    # get a batch
+    # get a batch (train)
     def getBatchSpecial(self, batchSize, currentPred, negFraction=0.8):
+        # ipdb.set_trace();
         # sample tasks
-        tasks = torch.LongTensor(batchSize).random_(0, self.numPairTasks-1);
+        # TODO: self.numPairTasks-1?
+        tasks = torch.LongTensor(batchSize).random_(0, self.numPairTasks);
         # sample a batch
-        indices = torch.LongTensor(batchSize).random_(0, self.numInst['train']-1);
+        indices = torch.LongTensor(batchSize).random_(0, self.numInst['train']);
         if self.useGPU: indices = indices.cuda();
         #-------------------------------------------------------------
         # fill the first batchSize/2 based on previously misclassified examples
@@ -159,7 +162,7 @@ class Dataloader:
         negBatchSize = int(batchSize * negFraction);
         # sample from this
         negSamples = torch.LongTensor(negBatchSize).fill_(0);
-        if negInds.size(0) > 1: negSamples.random_(0, negInds.size(0)-1);
+        if negInds.size(0) > 1: negSamples.random_(0, negInds.size(0));
         if self.useGPU: negSamples = negSamples.cuda();
         negInds = negInds[negSamples];
         indices[:negBatchSize] = negInds;
@@ -170,24 +173,41 @@ class Dataloader:
         selectInds = self.taskSelect[tasks];
         if self.useGPU:
             selectInds = selectInds.cuda();
-            tasks = tasks.cuda();
+            tasks = tasks.cuda();                    
+        
         labels = batch.gather(1, selectInds);
 
         return batch, tasks, labels;
 
     # Get all configurations
     def getCompleteData(self, dtype):
+        # Syaru: 
+        # self.data were 0.8/0.2 splitted, 
+        # of which train instance is size 51, test instance is size 13.
+        
         # expand self.data three folds, along with labels
         batch = self.data[dtype].unsqueeze(0).repeat(1, 1, self.numPairTasks);
         batch = batch.view(-1, self.numAttrs);
-        tasks = torch.range(0, self.numPairTasks-1).long();
+                
+        tasks = torch.arange(0, self.numPairTasks).long();
         tasks = tasks.unsqueeze(0).repeat(1, self.numInst[dtype]).view(-1);
 
-        # now sample predictions based on task
+        # Syaru: 
+        # task index is size 9, but only 6 tasks are vaild.
+        # tensor([[0, 1],
+                # [1, 0],
+                # [0, 2],
+                # [2, 0],
+                # [1, 2],
+                # [2, 1],
+                # [0, 0], ->invaild
+                # [1, 1],
+                # [2, 2]])
         selectInds = self.taskSelect[tasks];
         if self.useGPU:
             selectInds = selectInds.cuda();
             tasks = tasks.cuda();
+        # now sample predictions based on task
         labels = batch.gather(1, selectInds);
 
         return batch, tasks, labels;
