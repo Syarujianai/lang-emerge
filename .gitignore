@@ -1,4 +1,5 @@
 models/*
+log/*
 *.log
 results/*
 *.html
@@ -10,3 +11,4 @@ results/*
 ./GRTAGS
 ./GTAGS
 ./NppGTags.cfg
+

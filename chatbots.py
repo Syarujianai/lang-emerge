@@ -112,10 +112,7 @@ class ChatBot(nn.Module):
             # you don't need to manually release by backward(retain_graph=False).
             # Refer: https://discuss.pytorch.org/t/how-to-free-graph-manually/9255
             self.loss = torch.mean(-Categorical(outDistr).log_prob(actions) * rewards) / float(len(actions));  # gradients of log likelihood
-            autograd.backward(self.loss, retain_graph=True);           
-           
-        for p in self.parameters(): print(p.grad.data);
-        
+            autograd.backward(self.loss, retain_graph=True);       
 
     # switch mode to evaluate
     def evaluate(self): self.evalFlag = True;

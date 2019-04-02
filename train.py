@@ -18,6 +18,7 @@ from datetime import datetime
 import os
 import gc
 import collections
+
 # tensorboard
 path = './log/' + datetime.now().strftime("%Y%m%d_%H%M%S");
 writer = SummaryWriter(path);
@@ -116,6 +117,12 @@ for iterId in range(params['numEpochs'] * numIterPerEpoch):
     print('[%s][Iter: %d][Ep: %.2f][R: %.4f][Tr: %.2f Te: %.2f]' % \
                                 (time, iterId, epoch, team.totalReward,\
                                 accuracy['train'], accuracy['test']))
+
+    # Syaru: save tensorboard summary.
+    writer.add_scalar('Train/reward', team.totalReward, iterId);
+    writer.add_scalar('Train/acc', accuracy['train'], iterId);
+    writer.add_scalar('Test/acc', accuracy['test'], iterId);
+
 #------------------------------------------------------------------------
 # save final model with a time stamp
 timeStamp = strftime("%a-%d-%b-%Y-%X", gmtime());
