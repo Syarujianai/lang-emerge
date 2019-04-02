@@ -13,6 +13,17 @@ from dataloader import Dataloader
 import options
 from time import gmtime, strftime
 
+from tensorboardX import SummaryWriter
+from datetime import datetime
+import os
+import gc
+import collections
+# tensorboard
+path = './log/' + datetime.now().strftime("%Y%m%d_%H%M%S");
+writer = SummaryWriter(path);
+
+# torch cudnn setting
+torch.backends.cudnn.benchmark = True;
 
 # read the command line options
 options = options.read();
@@ -42,13 +53,15 @@ optimizer = optim.Adam([{'params': team.aBot.parameters(), \
 numIterPerEpoch = int(np.ceil(numInst['train']/params['batchSize']));
 numIterPerEpoch = max(1, numIterPerEpoch);
 count = 0;
-savePath = 'models/tasks_inter_%dH_%.4flr_%r_%d_%d.pickle' %\
+savePath = './models/tasks_inter_%dH_%.4flr_%r_%d_%d.pickle' %\
             (params['hiddenSize'], params['learningRate'], params['remember'],\
             options['aOutVocab'], options['qOutVocab']);
 
 matches = {};
 accuracy = {};
 bestAccuracy = 0;
+g1=0
+g2=0
 for iterId in range(params['numEpochs'] * numIterPerEpoch):
     epoch = float(iterId)/numIterPerEpoch;
 
@@ -62,12 +75,16 @@ for iterId in range(params['numEpochs'] * numIterPerEpoch):
                                                         params['negFraction']);
 
     # forward pass
-    team.forward(Variable(batchImg), Variable(batchTask));
+    _, _, talk = team.forward(Variable(batchImg), Variable(batchTask), True);
+    
     # backward pass
     batchReward = team.backward(optimizer, batchLabels, epoch);
 
     # take a step by optimizer
     optimizer.step()
+
+    # Syaru: record computaion graph.
+    torch.cuda.empty_cache();
     #--------------------------------------------------------------------------
     # switch to evaluate
     team.evaluate();
@@ -76,7 +93,6 @@ for iterId in range(params['numEpochs'] * numIterPerEpoch):
         # get the entire batch
         img, task, labels = data.getCompleteData(dtype);
         # evaluate on the train dataset, using greedy policy
-        # ipdb.set_trace();
         guess, _, _ = team.forward(Variable(img), Variable(task));
         # compute accuracy for color, shape, and both
         firstMatch = guess[0].data == labels[:, 0].long();

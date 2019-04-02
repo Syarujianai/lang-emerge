@@ -21,6 +21,9 @@ class ChatBot(nn.Module):
         # standard initializations
         self.hState = torch.Tensor();
         self.cState = torch.Tensor();
+        self.loss = torch.Tensor(1);
+        if self.useGPU:
+            self.loss = self.loss.cuda();
         self.actions = [];
         self.outDistr = [];
         self.evalFlag = False;
@@ -48,7 +51,10 @@ class ChatBot(nn.Module):
             self.cState = self.cState.cuda();
 
         # new episode
-        if not retainActions: self.actions = [];
+        if not retainActions: 
+            self.actions = [];
+            # Syaru: must reset self.outDistr, or gpu memory leak.
+            self.outDistr = [];
 
     # freeze agent
     def freeze(self):
@@ -66,7 +72,6 @@ class ChatBot(nn.Module):
             tokenEmbeds = torch.cat((tokenEmbeds, imgEmbed), 1);
 
         # now pass it through rnn (1 timestep)
-        #ipdb.set_trace();
         self.hState, self.cState = self.rnn(tokenEmbeds,\
                                             (self.hState, self.cState));
 
@@ -86,7 +91,7 @@ class ChatBot(nn.Module):
             self.outDistr.append(outDistr);
         return actions;
 
-    # backward computation
+    # backward computationtorch.mean
     def performBackward(self, rewards):
         # Syaru:
         # 1. stochastic_node.reinforce() is deprecated,
@@ -98,9 +103,19 @@ class ChatBot(nn.Module):
         # 4. self. outDistr: collection of 2 rounds qBot(speak and guess) or aBot(speak) output distribution.
         # 5. Separtely backward for each actions.
         # Refer: https://blog.csdn.net/qq_17550379/article/details/78939046
+        self.loss.fill_(0);
         for actions, outDistr in zip(self.actions, self.outDistr):
-            loss = torch.mean(-Categorical(outDistr).log_prob(actions) * rewards);  # gradients of log likelihood
-            autograd.backward(loss, retain_graph=True);
+            # Syaru:
+            # 1. How to debug gpu memory leak in Pytorch?
+            # Refer: https://discuss.pytorch.org/t/how-to-debug-causes-of-gpu-memory-leaks/6741/3
+            # 2. when set retain_graph=True, computational graph will automatically release when Variable out of python scope,
+            # you don't need to manually release by backward(retain_graph=False).
+            # Refer: https://discuss.pytorch.org/t/how-to-free-graph-manually/9255
+            self.loss = torch.mean(-Categorical(outDistr).log_prob(actions) * rewards) / float(len(actions));  # gradients of log likelihood
+            autograd.backward(self.loss, retain_graph=True);           
+           
+        for p in self.parameters(): print(p.grad.data);
+        
 
     # switch mode to evaluate
     def evaluate(self): self.evalFlag = True;
@@ -243,7 +258,6 @@ class Team:
 
     # forward pass
     def forward(self, batch, tasks, record=False):
-        # ipdb.set_trace();
         # reset the states of the bots
         batchSize = batch.size(0);
         self.qBot.resetStates(batchSize);
@@ -340,4 +354,4 @@ class Team:
                     toSave[agentName][module] = toSaveModule;
 
         # save as pickle
-        with open(savePath, 'w') as fileId: pickle.dump(toSave, fileId);
+        with open(savePath, 'wb') as fileId: pickle.dump(toSave, fileId);
