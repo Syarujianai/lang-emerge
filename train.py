@@ -19,12 +19,19 @@ import os
 import gc
 import collections
 
+# random seed setting
+torch.manual_seed(7);
+torch.cuda.manual_seed(7);
+np.random.seed(7);
+random.seed(7);
+
 # tensorboard
 path = './log/' + datetime.now().strftime("%Y%m%d_%H%M%S");
 writer = SummaryWriter(path);
 
 # torch cudnn setting
 torch.backends.cudnn.benchmark = True;
+torch.backends.cudnn.deterministic=True;
 
 # read the command line options
 options = options.read();
@@ -61,22 +68,27 @@ savePath = './models/tasks_inter_%dH_%.4flr_%r_%d_%d.pickle' %\
 matches = {};
 accuracy = {};
 bestAccuracy = 0;
-g1=0
-g2=0
+
 for iterId in range(params['numEpochs'] * numIterPerEpoch):
     epoch = float(iterId)/numIterPerEpoch;
 
     # get double attribute tasks
-    if 'train' not in matches:
-        batchImg, batchTask, batchLabels \
-                            = data.getBatch(params['batchSize']);
-    else:
-        batchImg, batchTask, batchLabels \
-                = data.getBatchSpecial(params['batchSize'], matches['train'],\
-                                                        params['negFraction']);
+    # if 'train' not in matches:
+    #     batchImg, batchTask, batchLabels \
+    #                         = data.getBatch(params['batchSize']);
+    # else:
+    #     batchImg, batchTask, batchLabels \
+    #             = data.getBatchSpecial(params['batchSize'], matches['train'],\
+    #                                                     params['negFraction']);
+    #ipdb.set_trace();
+
+    batchImg = torch.LongTensor([[ 1,  7, 10]]).cuda();
+    batchTask = torch.LongTensor([2]).cuda();
+    batchLabels = torch.LongTensor([[1, 10]]).cuda();
+    #ipdb.set_trace();
 
     # forward pass
-    _, _, talk = team.forward(Variable(batchImg), Variable(batchTask), True);
+    team.forward(Variable(batchImg), Variable(batchTask), False);
     
     # backward pass
     batchReward = team.backward(optimizer, batchLabels, epoch);
@@ -85,22 +97,43 @@ for iterId in range(params['numEpochs'] * numIterPerEpoch):
     optimizer.step()
 
     # Syaru: record computaion graph.
-    torch.cuda.empty_cache();
+    # torch.cuda.empty_cache();
     #--------------------------------------------------------------------------
     # switch to evaluate
     team.evaluate();
 
+    # for dtype in ['train', 'test']:
+    #     # get the entire batch
+    #     img, task, labels = data.getCompleteData(dtype);
+    #     # evaluate on the train dataset, using greedy policy
+    #     guess, _, _ = team.forward(Variable(img), Variable(task));
+    #     # compute accuracy for color, shape, and both
+    #     firstMatch = guess[0].data == labels[:, 0].long();
+    #     secondMatch = guess[1].data == labels[:, 1].long();
+    #     matches[dtype] = firstMatch & secondMatch;
+    #     accuracy[dtype] = 100*torch.sum(matches[dtype])\
+    #                                 /float(matches[dtype].size(0));
+    #ipdb.set_trace();
+    #if iterId % 3000 == 0:
+        #for p in team.qBot.named_parameters(): print(p, p[1].grad);
+        #for p in team.aBot.named_parameters(): print(p, p[1].grad);
+
     for dtype in ['train', 'test']:
+        img = torch.LongTensor([[ 1,  7, 10]]).cuda();
+        task = torch.LongTensor([2]).cuda();
+        labels = torch.LongTensor([[1, 10]]).cuda();
         # get the entire batch
-        img, task, labels = data.getCompleteData(dtype);
+        # img, task, labels = data.getCompleteData(dtype);
         # evaluate on the train dataset, using greedy policy
-        guess, _, _ = team.forward(Variable(img), Variable(task));
+        guess, gd, _ = team.forward(Variable(img), Variable(task));
+        if iterId % 3000 == 0 and dtype == 'train': print('Guess! ', guess, ' ', gd, '\n');        
         # compute accuracy for color, shape, and both
         firstMatch = guess[0].data == labels[:, 0].long();
         secondMatch = guess[1].data == labels[:, 1].long();
         matches[dtype] = firstMatch & secondMatch;
         accuracy[dtype] = 100*torch.sum(matches[dtype])\
                                     /float(matches[dtype].size(0));
+
     # switch to train
     team.train();
 

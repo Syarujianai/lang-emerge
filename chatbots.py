@@ -31,7 +31,7 @@ class ChatBot(nn.Module):
         # modules (common)
         self.inNet = nn.Embedding(self.inVocabSize, self.embedSize);
         self.outNet = nn.Linear(self.hiddenSize, self.outVocabSize);
-        self.softmax = nn.Softmax();
+        self.Softmax = nn.Softmax();
 
         # initialize weights
         initializeWeights([self.inNet, self.outNet], 'xavier');
@@ -78,7 +78,7 @@ class ChatBot(nn.Module):
     # speak a token
     def speak(self):
         # compute softmax and choose a token
-        outDistr = self.softmax(self.outNet(self.hState));
+        outDistr = self.Softmax(self.outNet(self.hState));
 
         # if evaluating
         if self.evalFlag:
@@ -111,7 +111,8 @@ class ChatBot(nn.Module):
             # 2. when set retain_graph=True, computational graph will automatically release when Variable out of python scope,
             # you don't need to manually release by backward(retain_graph=False).
             # Refer: https://discuss.pytorch.org/t/how-to-free-graph-manually/9255
-            self.loss = torch.mean(-Categorical(outDistr).log_prob(actions) * rewards) / float(len(actions));  # gradients of log likelihood
+            # ipdb.set_trace();
+            self.loss = torch.mean(Categorical(outDistr).log_prob(actions) * rewards);  # gradients of log likelihood
             autograd.backward(self.loss, retain_graph=True);       
 
     # switch mode to evaluate
@@ -176,6 +177,7 @@ class Questioner(ChatBot):
         # start token included
         numPreds = sum([len(ii) for ii in self.props.values()]);
         # network for predicting
+
         self.predictRNN = nn.LSTMCell(self.embedSize, self.hiddenSize);
         self.predictNet = nn.Linear(self.hiddenSize, numPreds);
         initializeWeights([self.predictNet, self.predictRNN, self.rnn], 'xavier');
@@ -189,7 +191,7 @@ class Questioner(ChatBot):
         # compute softmax and choose a token
         self.hState, self.cState = \
                 self.predictRNN(inputEmbeds, (self.hState, self.cState));
-        outDistr = self.softmax(self.predictNet(self.hState));
+        outDistr = self.Softmax(self.predictNet(self.hState));
 
         # if evaluating
         if self.evalFlag: _, actions = outDistr.max(1);
@@ -234,7 +236,7 @@ class Team:
         self.criterion = nn.NLLLoss();
         self.reward = torch.Tensor(self.batchSize, 1);
         self.totalReward = None;
-        self.rlNegReward = -10*self.rlScale;
+        self.rlNegReward = -0.1*self.rlScale;
 
         # ship to gpu if needed
         if self.useGPU:
@@ -311,8 +313,13 @@ class Team:
         self.aBot.performBackward(self.reward);
 
         # clamp the gradients
-        for p in self.qBot.parameters(): p.grad.data.clamp_(min=-5., max=5.);
-        for p in self.aBot.parameters(): p.grad.data.clamp_(min=-5., max=5.);
+        # for p in self.qBot.parameters(): p.grad.data.clamp_(min=-5., max=5.);
+        # for p in self.aBot.parameters(): p.grad.data.clamp_(min=-5., max=5.);
+        nn.utils.clip_grad_norm(self.qBot.parameters(), max_norm=5);
+        nn.utils.clip_grad_norm(self.aBot.parameters(), max_norm=5);
+
+        # TEST: print grad
+        #ipdb.set_trace();
 
         # cummulative reward
         batchReward = torch.mean(self.reward)/self.rlScale;                      
