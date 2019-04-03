@@ -92,7 +92,7 @@ class ChatBot(nn.Module):
         return actions;
 
     # backward computationtorch.mean
-    def performBackward(self, rewards):
+    def reinforce(self, rewards):
         # Syaru:
         # 1. stochastic_node.reinforce() is deprecated,
         # Refer: http://pytorch.org/docs/0.3.0/distributions.html
@@ -104,6 +104,7 @@ class ChatBot(nn.Module):
         # 5. Separtely backward for each actions.
         # Refer: https://blog.csdn.net/qq_17550379/article/details/78939046
         self.loss.fill_(0);
+        loss=0
         for actions, outDistr in zip(self.actions, self.outDistr):
             # Syaru:
             # 1. How to debug gpu memory leak in Pytorch?
@@ -111,9 +112,8 @@ class ChatBot(nn.Module):
             # 2. when set retain_graph=True, computational graph will automatically release when Variable out of python scope,
             # you don't need to manually release by backward(retain_graph=False).
             # Refer: https://discuss.pytorch.org/t/how-to-free-graph-manually/9255
-            # ipdb.set_trace();
-            self.loss = torch.mean(Categorical(outDistr).log_prob(actions) * rewards);  # gradients of log likelihood
-            autograd.backward(self.loss, retain_graph=True);       
+            loss += torch.sum(-Categorical(outDistr).log_prob(actions) * rewards);  # gradients of log likelihood
+        return loss;
 
     # switch mode to evaluate
     def evaluate(self): self.evalFlag = True;
@@ -198,7 +198,7 @@ class Questioner(ChatBot):
         else:
             # ORIGINAL: actions = outDistr.multinomial(num_samples=1);
             actions = Categorical(outDistr).sample();
-            # record actions
+            # record actions (for backward)
             self.actions.append(actions);
             self.outDistr.append(outDistr);
 
@@ -216,8 +216,8 @@ class Questioner(ChatBot):
             guess, distr = self.guessAttribute(taskEmbeds);
 
             # record the guess and distribution
-            guessTokens.append(guess);
-            guessDistr.append(distr);
+            guessTokens.append(guess.detach());
+            guessDistr.append(distr.detach());
 
         # return prediction
         return guessTokens, guessDistr;
@@ -236,7 +236,7 @@ class Team:
         self.criterion = nn.NLLLoss();
         self.reward = torch.Tensor(self.batchSize, 1);
         self.totalReward = None;
-        self.rlNegReward = -0.1*self.rlScale;
+        self.rlNegReward = -10*self.rlScale;
 
         # ship to gpu if needed
         if self.useGPU:
@@ -258,6 +258,7 @@ class Team:
     # forward pass
     def forward(self, batch, tasks, record=False):
         # reset the states of the bots
+        #ipdb.set_trace();
         batchSize = batch.size(0);
         self.qBot.resetStates(batchSize);
         self.aBot.resetStates(batchSize);
@@ -274,7 +275,7 @@ class Team:
             self.qBot.listen(aBotReply);
             qBotQues = self.qBot.speak();
 
-            # clone
+            # be rid of computation graph
             qBotQues = qBotQues.detach();
             # make this random
             self.qBot.listen(self.qBot.listenOffset + qBotQues);
@@ -284,6 +285,8 @@ class Team:
             # listen to question and answer, also listen to answer
             self.aBot.listen(qBotQues, imgEmbed);
             aBotReply = self.aBot.speak();
+
+            # be rid of computation graph
             aBotReply = aBotReply.detach();
             self.aBot.listen(aBotReply + self.aBot.listenOffset, imgEmbed);
 
@@ -309,17 +312,21 @@ class Team:
 
         # optimize for qBot, aBot
         optimizer.zero_grad();
-        self.qBot.performBackward(self.reward);
-        self.aBot.performBackward(self.reward);
+        q_loss = self.qBot.reinforce(self.reward);
+        a_loss = self.aBot.reinforce(self.reward);
+        t_loss = q_loss + a_loss;
+        t_loss.backward();
 
         # clamp the gradients
-        # for p in self.qBot.parameters(): p.grad.data.clamp_(min=-5., max=5.);
-        # for p in self.aBot.parameters(): p.grad.data.clamp_(min=-5., max=5.);
-        nn.utils.clip_grad_norm(self.qBot.parameters(), max_norm=5);
-        nn.utils.clip_grad_norm(self.aBot.parameters(), max_norm=5);
-
-        # TEST: print grad
-        #ipdb.set_trace();
+        # Refer: https://github.com/cjlovering/lang-emerge/blob/master/chatbots.py
+        for p in self.qBot.parameters():            
+            if p.grad is not None:
+                p.grad.data.clamp_(min=-5., max=5.);
+        for p in self.aBot.parameters():
+            if p.grad is not None:
+                p.grad.data.clamp_(min=-5., max=5.);
+        # nn.utils.clip_grad_norm_(self.qBot.parameters(), max_norm=5);
+        # nn.utils.clip_grad_norm_(self.aBot.parameters(), max_norm=5);
 
         # cummulative reward
         batchReward = torch.mean(self.reward)/self.rlScale;                      

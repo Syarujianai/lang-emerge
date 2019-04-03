@@ -129,7 +129,7 @@ class Dataloader:
     #  query number of instances
     def getInstCount(self): return self.numInst;
 
-    # get a batch (eval)
+    # get a batch (first train)
     def getBatch(self, batchSize):
         # sample tasks
         tasks = torch.LongTensor(batchSize).random_(0, self.numPairTasks);
@@ -180,7 +180,7 @@ class Dataloader:
 
         return batch, tasks, labels;
 
-    # Get all configurations
+    # Get all configurations (eval)
     def getCompleteData(self, dtype):
         # Syaru: 
         # self.data were 0.8/0.2 splitted, 
