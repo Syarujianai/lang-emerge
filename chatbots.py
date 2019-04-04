@@ -7,6 +7,8 @@ from torch.autograd import Variable
 import torch.autograd as autograd
 import sys
 from utilities import initializeWeights
+from torch.distributions.gumbel import Gumbel
+from torch.nn.functional import gumbel_softmax
 
 import ipdb, pickle
 #---------------------------------------------------------------------------
@@ -21,17 +23,19 @@ class ChatBot(nn.Module):
         # standard initializations
         self.hState = torch.Tensor();
         self.cState = torch.Tensor();
-        self.loss = torch.Tensor(1);
-        if self.useGPU:
-            self.loss = self.loss.cuda();
+        #self.loss = torch.Tensor(1);
+        # if self.useGPU:
+        #     self.loss = self.loss.cuda();
         self.actions = [];
         self.outDistr = [];
+        self.actionsProbs = [];
         self.evalFlag = False;
 
         # modules (common)
         self.inNet = nn.Embedding(self.inVocabSize, self.embedSize);
         self.outNet = nn.Linear(self.hiddenSize, self.outVocabSize);
         self.Softmax = nn.Softmax();
+        #self.gumbelSoftmax = gumbel_softmax(tau=1.0, hard=False, eps=1e-10);
 
         # initialize weights
         initializeWeights([self.inNet, self.outNet], 'xavier');
@@ -55,6 +59,7 @@ class ChatBot(nn.Module):
             self.actions = [];
             # Syaru: must reset self.outDistr, or gpu memory leak.
             self.outDistr = [];
+            self.actionsProbs = [];
 
     # freeze agent
     def freeze(self):
@@ -78,17 +83,21 @@ class ChatBot(nn.Module):
     # speak a token
     def speak(self):
         # compute softmax and choose a token
-        outDistr = self.Softmax(self.outNet(self.hState));
+        # R：      
+        outDistr = gumbel_softmax(self.outNet(self.hState));
 
         # if evaluating
         if self.evalFlag:
             _, actions = outDistr.max(1);
         else:
-            actions = Categorical(outDistr).sample();
+            # R:
+            actionsProbs, actions = outDistr.max(1);
+            # actions = Categorical(outDistr).sample();
             # record actions
             self.actions.append(actions);
             # record output distribution
             self.outDistr.append(outDistr);
+            self.actionsProbs.append(actionsProbs);
         return actions;
 
     # backward computationtorch.mean
@@ -103,16 +112,18 @@ class ChatBot(nn.Module):
         # 4. self. outDistr: collection of 2 rounds qBot(speak and guess) or aBot(speak) output distribution.
         # 5. Separtely backward for each actions.
         # Refer: https://blog.csdn.net/qq_17550379/article/details/78939046
-        self.loss.fill_(0);
-        loss=0
-        for actions, outDistr in zip(self.actions, self.outDistr):
+        #self.loss.fill_(0);
+        loss = 0.;
+        for actionsProbs, outDistr in zip(self.actionsProbs, self.outDistr):
             # Syaru:
             # 1. How to debug gpu memory leak in Pytorch?
             # Refer: https://discuss.pytorch.org/t/how-to-debug-causes-of-gpu-memory-leaks/6741/3
             # 2. when set retain_graph=True, computational graph will automatically release when Variable out of python scope,
             # you don't need to manually release by backward(retain_graph=False).
             # Refer: https://discuss.pytorch.org/t/how-to-free-graph-manually/9255
-            loss += torch.sum(-Categorical(outDistr).log_prob(actions) * rewards);  # gradients of log likelihood
+            #loss += torch.mean(-Categorical(outDistr).log_prob(actions) * rewards);  # gradients of log likelihood
+            #ipdb.set_trace();
+            loss += -(actionsProbs.log_() * rewards).mean()
         return loss;
 
     # switch mode to evaluate
@@ -197,10 +208,13 @@ class Questioner(ChatBot):
         if self.evalFlag: _, actions = outDistr.max(1);
         else:
             # ORIGINAL: actions = outDistr.multinomial(num_samples=1);
-            actions = Categorical(outDistr).sample();
+            # R:
+            actionsProbs, actions = outDistr.max(1)
+            # actions = Categorical(outDistr).sample();
             # record actions (for backward)
             self.actions.append(actions);
             self.outDistr.append(outDistr);
+            self.actionsProbs.append(actionsProbs);
 
         return actions, outDistr;
 
@@ -276,6 +290,7 @@ class Team:
             qBotQues = self.qBot.speak();
 
             # be rid of computation graph
+            #ipdb.set_trace()
             qBotQues = qBotQues.detach();
             # make this random
             self.qBot.listen(self.qBot.listenOffset + qBotQues);
@@ -314,6 +329,7 @@ class Team:
         optimizer.zero_grad();
         q_loss = self.qBot.reinforce(self.reward);
         a_loss = self.aBot.reinforce(self.reward);
+        #print("loss: ", q_loss.item(), " ", a_loss.item());
         t_loss = q_loss + a_loss;
         t_loss.backward();
 

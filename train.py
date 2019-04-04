@@ -18,10 +18,10 @@ import os
 import gc
 
 # random seed setting
-torch.manual_seed(7);
-torch.cuda.manual_seed(7);
-np.random.seed(7);
-random.seed(7);
+# torch.manual_seed(7);
+# torch.cuda.manual_seed(7);
+# np.random.seed(7);
+# random.seed(7);
 
 # tensorboard
 path = './log/' + datetime.now().strftime("%Y%m%d_%H%M%S");
